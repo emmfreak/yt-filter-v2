@@ -13,9 +13,13 @@
     hideMembersOnly:   true,
     hideExploreTopics: true,
     hideTopicChips:    true,
+    // Duration filter — opt-in (both default to false)
+    hideShortDuration:  false,
+    minDurationMinutes: 10,
+    hideLongDuration:   false,
+    maxDurationMinutes: 60,
   };
 
-  // Mutated in place when popup sends updates or storage loads.
   const settings = Object.assign({}, SETTINGS_DEFAULTS);
 
   function loadSettings() {
@@ -25,8 +29,6 @@
     });
   }
 
-  // resetAndRescan is defined in ytf-filters.js (loaded after this file).
-  // We reference it via YTF at call time so load order doesn't matter.
   browser.runtime.onMessage.addListener((msg) => {
     if (!msg || msg.type !== "ytf-settings-update" || !msg.settings) return;
     Object.assign(settings, msg.settings);

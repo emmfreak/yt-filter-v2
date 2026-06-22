@@ -7,7 +7,7 @@
     console.log(YTF.LOG_PREFIX, ...args);
   }
 
-  // Parse abbreviated view counts: "14m views" → 14000000, "350k views" → 350000, "0" → 0.
+  // Parse abbreviated view counts: "14m views" → 14000000, "350k views" → 350000.
   // Returns NaN if the text can't be parsed.
   function parseViewCount(text) {
     if (!text) return NaN;
@@ -30,6 +30,30 @@
     return m ? m[0] : null;
   }
 
+  // Parse a duration string from badge-shape text into total seconds.
+  // Accepts "M:SS", "MM:SS", "H:MM:SS".  Returns NaN for non-time strings
+  // (status badges like "LIVE", "SHORTS", "MIX" won't match the pattern).
+  function parseDuration(text) {
+    if (!text) return NaN;
+    const m = text.trim().match(/^(\d+):(\d{2})(?::(\d{2}))?$/);
+    if (!m) return NaN;
+    if (m[3] !== undefined) {
+      return parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3], 10);
+    }
+    return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+  }
+
+  // Format total seconds back into a readable "M:SS" / "H:MM:SS" string for logs.
+  function formatDuration(totalSecs) {
+    const h = Math.floor(totalSecs / 3600);
+    const m = Math.floor((totalSecs % 3600) / 60);
+    const s = totalSecs % 60;
+    if (h > 0) {
+      return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    }
+    return `${m}:${String(s).padStart(2, "0")}`;
+  }
+
   // Returns a debounced version of fn.
   function debounce(fn, ms) {
     let timer = null;
@@ -39,5 +63,12 @@
     };
   }
 
-  Object.assign(window.YTF, { log, parseViewCount, extractViewString, debounce });
+  Object.assign(window.YTF, {
+    log,
+    parseViewCount,
+    extractViewString,
+    parseDuration,
+    formatDuration,
+    debounce,
+  });
 })();

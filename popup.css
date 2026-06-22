@@ -123,3 +123,9 @@ body {
 .ytf-number[type="number"] {
   -moz-appearance: textfield;
 }
+
+.ytf-unit {
+  color: #aaa;
+  font-size: 12px;
+  flex-shrink: 0;
+}

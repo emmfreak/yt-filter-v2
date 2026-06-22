@@ -10,14 +10,19 @@ const DEFAULTS = {
   hideMembersOnly:   true,
   hideExploreTopics: true,
   hideTopicChips:    true,
+  hideShortDuration:  false,
+  minDurationMinutes: 10,
+  hideLongDuration:   false,
+  maxDurationMinutes: 60,
 };
 
 const TOGGLE_IDS = [
   "hideLivestreams", "hideLowViews", "hideShorts", "hideMixes",
   "hidePlayables", "hideMembersOnly", "hideExploreTopics", "hideTopicChips",
+  "hideShortDuration", "hideLongDuration",
 ];
 
-const NUMBER_IDS = ["viewThreshold"];
+const NUMBER_IDS = ["viewThreshold", "minDurationMinutes", "maxDurationMinutes"];
 
 function loadSettings() {
   browser.storage.local.get(DEFAULTS).then((s) => {

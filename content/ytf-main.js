@@ -4,16 +4,13 @@
   const YTF = window.YTF;
 
   // ---------------------------------------------------------------------------
-  // SPA navigation
+  // SPA navigation  (Fix 3: single 500ms delay for both event paths)
   // ---------------------------------------------------------------------------
 
-  // YouTube is a single-page app.  yt-navigate-finish fires after the new page
-  // content has been inserted; popstate fires on browser back/forward.
-  // Both need a short delay before rescanning because YouTube continues mutating
-  // the DOM for several hundred ms after the event.
-
-  function onNavigate() {
-    YTF.log("Navigation — clearing marks and rescanning");
+  // Clear all filter marks immediately, then rescan after 500ms.
+  // Both yt-navigate-finish and popstate use the same function — no extra
+  // outer wrapper that was doubling the delay on back/forward navigation.
+  function clearAndScheduleRescan() {
     document.querySelectorAll(`[${YTF.FILTERED_ATTR}]`).forEach((el) => {
       el.removeAttribute(YTF.FILTERED_ATTR);
       el.classList.remove("ytf-hidden");
@@ -21,20 +18,20 @@
     setTimeout(() => YTF.scanAndFilter(), 500);
   }
 
-  window.addEventListener("yt-navigate-finish", onNavigate);
-  window.addEventListener("popstate", () => setTimeout(onNavigate, 300));
+  window.addEventListener("yt-navigate-finish", () => {
+    YTF.log("yt-navigate-finish — rescanning");
+    clearAndScheduleRescan();
+  });
+
+  window.addEventListener("popstate", () => {
+    YTF.log("popstate — rescanning");
+    clearAndScheduleRescan();
+  });
 
   // ---------------------------------------------------------------------------
   // MutationObserver (debounced)
   // ---------------------------------------------------------------------------
 
-  // Watches the whole document body for new nodes (lazy-loaded cards, infinite
-  // scroll additions).  Debounced at 250ms so rapid bursts of mutations collapse
-  // into a single scan pass.
-  //
-  // Re-entry is safe: elements already stamped with data-ytf-filtered are skipped
-  // at the top of processVideoElement, so our own class/attribute writes don't
-  // cause infinite loops.
   const debouncedScan = YTF.debounce(YTF.scanAndFilter, YTF.DEBOUNCE_MS);
   const domObserver = new MutationObserver(debouncedScan);
 
@@ -42,9 +39,6 @@
   // Periodic rescan
   // ---------------------------------------------------------------------------
 
-  // Catches cards whose yt-lockup-metadata-view-model loaded between observer
-  // firings.  Only runs a full scan when there are actually unresolved elements
-  // to avoid unnecessary work.
   function startPeriodicRescan() {
     const unstampedSelector = YTF.VIDEO_SELECTORS.split(", ")
       .map((s) => `${s}:not([${YTF.FILTERED_ATTR}])`)
@@ -71,10 +65,7 @@
 
       YTF.scanAndFilter();
 
-      domObserver.observe(document.body, {
-        childList: true,
-        subtree: true,
-      });
+      domObserver.observe(document.body, { childList: true, subtree: true });
 
       startPeriodicRescan();
 

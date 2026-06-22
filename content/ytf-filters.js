@@ -5,14 +5,75 @@
   const FILTERED_ATTR = YTF.FILTERED_ATTR;
 
   // ---------------------------------------------------------------------------
+  // Fix 2 — Masthead frosted-glass fix (reversible)
+  //
+  // When the homepage chip bar is visible, ytd-masthead carries
+  // frosted-glass-mode="with-chipbar", which makes its #background element
+  // 112px tall (56px bar + 56px chip-bar reservation).  Hiding the chip bar
+  // renderer doesn't change that attribute, so a 56px frosted rectangle stays
+  // behind.  We set the attribute to "none" and — as a fallback — pin the
+  // #background height to 56px.  Both changes are reversed by restoreMastheadFix()
+  // before every resetAndRescan so they don't linger when the setting is toggled.
+  // ---------------------------------------------------------------------------
+
+  let mastheadFixApplied = false;
+
+  function applyMastheadFix() {
+    if (mastheadFixApplied) return;
+    const masthead = document.querySelector("ytd-masthead");
+    if (!masthead) return;
+
+    const current = masthead.getAttribute("frosted-glass-mode");
+    if (current !== "with-chipbar") return; // Only "with-chipbar" reserves the extra space
+
+    masthead.dataset.ytfFrostedOrig = current;
+    masthead.setAttribute("frosted-glass-mode", "none");
+    mastheadFixApplied = true;
+    YTF.log("[Fix2] frosted-glass-mode: with-chipbar → none");
+
+    // Fallback: if the attribute change alone doesn't collapse the space, force the height.
+    const bg = masthead.querySelector("#background");
+    if (bg) {
+      bg.dataset.ytfHeightOrig = bg.style.height;
+      bg.style.setProperty("height", "56px", "important");
+      YTF.log("[Fix2] masthead #background computed height after fix:", getComputedStyle(bg).height);
+    }
+  }
+
+  function restoreMastheadFix() {
+    if (!mastheadFixApplied) return;
+    mastheadFixApplied = false;
+
+    const masthead = document.querySelector("ytd-masthead");
+    if (!masthead) return;
+
+    const orig = masthead.dataset.ytfFrostedOrig;
+    if (orig !== undefined) {
+      masthead.setAttribute("frosted-glass-mode", orig);
+      delete masthead.dataset.ytfFrostedOrig;
+    }
+
+    const bg = masthead.querySelector("#background");
+    if (bg && bg.dataset.ytfHeightOrig !== undefined) {
+      const origH = bg.dataset.ytfHeightOrig;
+      if (origH) {
+        bg.style.height = origH;
+      } else {
+        bg.style.removeProperty("height");
+      }
+      delete bg.dataset.ytfHeightOrig;
+    }
+
+    YTF.log("[Fix2] Restored masthead frosted-glass-mode to:", orig || "(attribute removed)");
+  }
+
+  // ---------------------------------------------------------------------------
   // Individual card processing
   // ---------------------------------------------------------------------------
 
   function processVideoElement(el) {
     if (el.hasAttribute(FILTERED_ATTR)) return true;
 
-    // A yt-lockup-view-model nested inside ytd-rich-item-renderer or ytd-video-renderer
-    // is handled by its parent — skip it to avoid double-processing.
     if (
       el.tagName === "YT-LOCKUP-VIEW-MODEL" &&
       el.closest(YTF.YTD_CONTAINER_SELECTORS)
@@ -30,10 +91,7 @@
       return true;
     }
 
-    if (indeterminate) {
-      // Metadata not yet loaded — leave unset so the periodic rescan retries.
-      return false;
-    }
+    if (indeterminate) return false;
 
     el.setAttribute(FILTERED_ATTR, "pass");
     return true;
@@ -64,8 +122,9 @@
     filterTopicChips();
   }
 
-  // Clear all filter marks and re-run — called on settings change.
+  // Restore any shared-element mutations first, then clear per-card marks and rescan.
   function resetAndRescan() {
+    restoreMastheadFix();
     document.querySelectorAll(`[${FILTERED_ATTR}]`).forEach((el) => {
       el.removeAttribute(FILTERED_ATTR);
       el.classList.remove("ytf-hidden");
@@ -77,21 +136,13 @@
   // Shelf / section filtering
   // ---------------------------------------------------------------------------
 
-  // Shelf heading text → which setting governs it.
   const SHELF_FILTERS = [
-    { pattern: /\bplayable/i,         settingKey: "hidePlayables",     reason: "playables shelf"       },
-    { pattern: /\bshorts\b/i,         settingKey: "hideShorts",        reason: "shorts shelf"          },
-    { pattern: /\bexplore\b.*topic/i, settingKey: "hideExploreTopics", reason: "explore topics shelf"  },
-    { pattern: /\btopic.*explore\b/i, settingKey: "hideExploreTopics", reason: "explore topics shelf"  },
+    { pattern: /\bplayable/i,         settingKey: "hidePlayables",     reason: "playables shelf"      },
+    { pattern: /\bshorts\b/i,         settingKey: "hideShorts",        reason: "shorts shelf"         },
+    { pattern: /\bexplore\b.*topic/i, settingKey: "hideExploreTopics", reason: "explore topics shelf" },
+    { pattern: /\btopic.*explore\b/i, settingKey: "hideExploreTopics", reason: "explore topics shelf" },
   ];
 
-  // Shelf container selectors:
-  //   ytd-rich-shelf-renderer / ytd-reel-shelf-renderer / ytd-shelf-renderer
-  //     — classic shelf types confirmed in old code; kept as they still appear in practice.
-  //   ytd-rich-section-renderer
-  //     — wraps shelves on the homepage rich grid.
-  //   grid-shelf-view-model
-  //     — confirmed in search custom elements list; used for Shorts grid in search results.
   const SHELF_SELECTORS = [
     "ytd-rich-shelf-renderer",
     "ytd-reel-shelf-renderer",
@@ -101,17 +152,13 @@
   ].join(", ");
 
   function scanAndFilterShelves() {
-    // 1. Heading-based: find a shelf, read its heading, hide if it matches a pattern.
+    // 1. Heading-based hiding for Playables, Explore Topics, etc.
     const shelves = document.querySelectorAll(SHELF_SELECTORS);
     for (const shelf of shelves) {
       if (shelf.hasAttribute(FILTERED_ATTR)) continue;
 
-      // Heading element candidates.  yt-section-header-view-model confirmed in
-      // search custom elements list; others are classic YouTube shelf headers.
       const heading = shelf.querySelector(
-        "#title, #title-text, h2, " +
-        "yt-dynamic-text-view-model, " +
-        "yt-section-header-view-model"
+        "#title, #title-text, h2, yt-dynamic-text-view-model, yt-section-header-view-model"
       );
       const headingText = heading ? heading.textContent.trim() : "";
 
@@ -131,28 +178,45 @@
       if (!matched) shelf.setAttribute(FILTERED_ATTR, "pass");
     }
 
-    // 2. Shorts walk-up: for each unprocessed ytm-shorts-lockup-view-model, climb
-    //    the tree to find its enclosing shelf container and hide the whole block.
-    //    This catches the Shorts grid in search results even when heading detection
-    //    fails (e.g. heading not yet loaded or in a shadow root).
-    //    Source: ytm-shorts-lockup-view-model confirmed in search capture (15 found);
-    //            grid-shelf-view-model confirmed in search custom elements list.
+    // 2. Shorts shelf walk-up  (Fix 1 — revised)
+    //
+    // The per-card scan stamps ytm-shorts-lockup-view-model items with "1" before
+    // this function runs, so gating on the *item* stamp causes the entire walk-up
+    // to be skipped.  We gate on the *shelf container* stamp instead.
+    //
+    // Strategy: walk up from each Shorts item to ytd-item-section-renderer, which
+    // is the section wrapper in YouTube search results and contains both the shelf
+    // heading and the item grid.  Log the ancestor chain on every newly-found
+    // (unstamped) container so the live structure is visible in the console.
     if (YTF.settings.hideShorts) {
-      const shortsItems = document.querySelectorAll("ytm-shorts-lockup-view-model");
-      for (const item of shortsItems) {
-        if (item.hasAttribute(FILTERED_ATTR)) continue;
+      for (const item of document.querySelectorAll("ytm-shorts-lockup-view-model")) {
+        let cursor = item.parentElement;
+        const chain = [];
+        let shelfContainer = null;
+        let depth = 0;
 
-        const shelf = item.closest(
-          "grid-shelf-view-model, ytd-reel-shelf-renderer, " +
-          "ytd-rich-section-renderer, ytd-item-section-renderer"
-        );
-        if (shelf && !shelf.hasAttribute(FILTERED_ATTR)) {
-          shelf.setAttribute(FILTERED_ATTR, "1");
-          shelf.classList.add("ytf-hidden");
-          YTF.log("Hiding Shorts shelf (walk-up from ytm-shorts-lockup-view-model)");
+        while (cursor && cursor !== document.documentElement && depth < 20) {
+          const id  = cursor.id ? `#${cursor.id}` : "";
+          const cls = cursor.classList.length
+            ? `.${[...cursor.classList].slice(0, 3).join(".")}`
+            : "";
+          chain.push(`${cursor.tagName}${id}${cls}`);
+
+          if (cursor.tagName === "YTD-ITEM-SECTION-RENDERER") {
+            shelfContainer = cursor;
+            break;
+          }
+          cursor = cursor.parentElement;
+          depth++;
         }
-        // Stamp the item too so it doesn't trigger another walk-up on the next scan.
-        item.setAttribute(FILTERED_ATTR, "1");
+
+        if (!shelfContainer) continue;
+        if (shelfContainer.hasAttribute(FILTERED_ATTR)) continue; // Already hidden
+
+        YTF.log("[Fix1] Shorts walk-up chain:", chain.join(" > "));
+        shelfContainer.setAttribute(FILTERED_ATTR, "1");
+        shelfContainer.classList.add("ytf-hidden");
+        YTF.log("[Fix1] Hidden Shorts section:", shelfContainer.tagName, shelfContainer.id || "");
       }
     }
   }
@@ -164,8 +228,6 @@
   function filterShortsNav() {
     if (!YTF.settings.hideShorts) return;
 
-    // ytd-guide-entry-renderer confirmed in home and watch captures.
-    // Find the entry whose link href is exactly "/shorts".
     const entries = document.querySelectorAll(
       "ytd-guide-entry-renderer, ytd-mini-guide-entry-renderer"
     );
@@ -181,25 +243,19 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Topic chips bar
+  // Topic chips bar  (Fix 2)
   // ---------------------------------------------------------------------------
 
   function filterTopicChips() {
     if (!YTF.settings.hideTopicChips) return;
 
-    // ytd-feed-filter-chip-bar-renderer confirmed in all three captures.
-    // Hierarchy: ytd-rich-grid-renderer > div#header > ytd-feed-filter-chip-bar-renderer
-    //
-    // Hiding only the chip bar renderer leaves an empty gap because div#header
-    // has its own height/padding.  We also hide the #header parent when it is
-    // the direct parent (parentElement.id === "header"), which it always is per
-    // the captures.
     const chipBars = document.querySelectorAll("ytd-feed-filter-chip-bar-renderer");
     for (const bar of chipBars) {
       if (bar.hasAttribute(FILTERED_ATTR)) continue;
       bar.setAttribute(FILTERED_ATTR, "1");
       bar.classList.add("ytf-hidden");
 
+      // Hide the #header parent to close the 56px gap it holds.
       const header = bar.parentElement;
       if (header && header.id === "header" && !header.hasAttribute(FILTERED_ATTR)) {
         header.setAttribute(FILTERED_ATTR, "1");
@@ -208,6 +264,9 @@
 
       YTF.log("Hiding topic chips bar");
     }
+
+    // Collapse the masthead frosted-glass background that reserves space for the chip bar.
+    applyMastheadFix();
   }
 
   // ---------------------------------------------------------------------------
