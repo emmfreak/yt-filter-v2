@@ -153,21 +153,27 @@
   // Duration
   // ---------------------------------------------------------------------------
 
-  // Duration badge lives inside yt-thumbnail-view-model.
-  // For search rows and Shorts the full DOM is synchronous.
-  // For lockup cards we check yt-thumbnail-view-model presence as the "loaded" signal.
+  // The thumbnail container can render well before the duration badge does, so
+  // checking yt-thumbnail-view-model wrongly treats half-rendered cards as
+  // "loaded, no duration" and lets them pass.  Key on the time badge itself
+  // (^\d+:\d{2}) — that's the only signal that the duration has actually rendered.
+  // Cards with no time badge return false → shouldHide defers (indeterminate),
+  // and the periodic rescan retries once it appears (same pattern as low-views).
+  const TIME_BADGE_RE = /^\d+:\d{2}/;
+
   function isDurationLoaded(el) {
-    const tag = el.tagName;
-    if (tag === "YTD-VIDEO-RENDERER" || tag === "YTM-SHORTS-LOCKUP-VIEW-MODEL") return true;
-    return el.querySelector("yt-thumbnail-view-model") !== null;
+    return getBadgeTexts(el).some((t) => TIME_BADGE_RE.test(t));
   }
 
   // Returns total seconds, or NaN if no time-format badge is present.
-  // getBadgeTexts() returns uppercase; parseDuration() is case-insensitive for digits/colons.
+  // Temporary log left in to verify live parses on the page; remove once confirmed.
   function getDuration(el) {
     for (const text of getBadgeTexts(el)) {
       const secs = YTF.parseDuration(text);
-      if (!isNaN(secs)) return secs;
+      if (!isNaN(secs)) {
+        YTF.log("[Duration] parsed", secs, "s from", text, "—", getVideoTitle(el));
+        return secs;
+      }
     }
     return NaN;
   }

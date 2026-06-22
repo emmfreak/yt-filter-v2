@@ -5,69 +5,6 @@
   const FILTERED_ATTR = YTF.FILTERED_ATTR;
 
   // ---------------------------------------------------------------------------
-  // Fix 2 — Masthead frosted-glass fix (reversible)
-  //
-  // When the homepage chip bar is visible, ytd-masthead carries
-  // frosted-glass-mode="with-chipbar", which makes its #background element
-  // 112px tall (56px bar + 56px chip-bar reservation).  Hiding the chip bar
-  // renderer doesn't change that attribute, so a 56px frosted rectangle stays
-  // behind.  We set the attribute to "none" and — as a fallback — pin the
-  // #background height to 56px.  Both changes are reversed by restoreMastheadFix()
-  // before every resetAndRescan so they don't linger when the setting is toggled.
-  // ---------------------------------------------------------------------------
-
-  let mastheadFixApplied = false;
-
-  function applyMastheadFix() {
-    if (mastheadFixApplied) return;
-    const masthead = document.querySelector("ytd-masthead");
-    if (!masthead) return;
-
-    const current = masthead.getAttribute("frosted-glass-mode");
-    if (current !== "with-chipbar") return; // Only "with-chipbar" reserves the extra space
-
-    masthead.dataset.ytfFrostedOrig = current;
-    masthead.setAttribute("frosted-glass-mode", "none");
-    mastheadFixApplied = true;
-    YTF.log("[Fix2] frosted-glass-mode: with-chipbar → none");
-
-    // Fallback: if the attribute change alone doesn't collapse the space, force the height.
-    const bg = masthead.querySelector("#background");
-    if (bg) {
-      bg.dataset.ytfHeightOrig = bg.style.height;
-      bg.style.setProperty("height", "56px", "important");
-      YTF.log("[Fix2] masthead #background computed height after fix:", getComputedStyle(bg).height);
-    }
-  }
-
-  function restoreMastheadFix() {
-    if (!mastheadFixApplied) return;
-    mastheadFixApplied = false;
-
-    const masthead = document.querySelector("ytd-masthead");
-    if (!masthead) return;
-
-    const orig = masthead.dataset.ytfFrostedOrig;
-    if (orig !== undefined) {
-      masthead.setAttribute("frosted-glass-mode", orig);
-      delete masthead.dataset.ytfFrostedOrig;
-    }
-
-    const bg = masthead.querySelector("#background");
-    if (bg && bg.dataset.ytfHeightOrig !== undefined) {
-      const origH = bg.dataset.ytfHeightOrig;
-      if (origH) {
-        bg.style.height = origH;
-      } else {
-        bg.style.removeProperty("height");
-      }
-      delete bg.dataset.ytfHeightOrig;
-    }
-
-    YTF.log("[Fix2] Restored masthead frosted-glass-mode to:", orig || "(attribute removed)");
-  }
-
-  // ---------------------------------------------------------------------------
   // Individual card processing
   // ---------------------------------------------------------------------------
 
@@ -122,9 +59,9 @@
     filterTopicChips();
   }
 
-  // Restore any shared-element mutations first, then clear per-card marks and rescan.
+  // Clear per-card marks + body-level state, then rescan.
   function resetAndRescan() {
-    restoreMastheadFix();
+    document.body.classList.remove("ytf-chips-hidden");
     document.querySelectorAll(`[${FILTERED_ATTR}]`).forEach((el) => {
       el.removeAttribute(FILTERED_ATTR);
       el.classList.remove("ytf-hidden");
@@ -178,30 +115,19 @@
       if (!matched) shelf.setAttribute(FILTERED_ATTR, "pass");
     }
 
-    // 2. Shorts shelf walk-up  (Fix 1 — revised)
+    // 2. Shorts shelf walk-up
     //
-    // The per-card scan stamps ytm-shorts-lockup-view-model items with "1" before
-    // this function runs, so gating on the *item* stamp causes the entire walk-up
-    // to be skipped.  We gate on the *shelf container* stamp instead.
-    //
-    // Strategy: walk up from each Shorts item to ytd-item-section-renderer, which
-    // is the section wrapper in YouTube search results and contains both the shelf
-    // heading and the item grid.  Log the ancestor chain on every newly-found
-    // (unstamped) container so the live structure is visible in the console.
+    // Items are stamped "1" by the per-card scan before this runs, so we gate
+    // on the SHELF CONTAINER stamp, not the item stamp.  Walk up to
+    // ytd-item-section-renderer (the search-results section wrapper that holds
+    // both the shelf heading and the item grid).
     if (YTF.settings.hideShorts) {
       for (const item of document.querySelectorAll("ytm-shorts-lockup-view-model")) {
         let cursor = item.parentElement;
-        const chain = [];
         let shelfContainer = null;
         let depth = 0;
 
         while (cursor && cursor !== document.documentElement && depth < 20) {
-          const id  = cursor.id ? `#${cursor.id}` : "";
-          const cls = cursor.classList.length
-            ? `.${[...cursor.classList].slice(0, 3).join(".")}`
-            : "";
-          chain.push(`${cursor.tagName}${id}${cls}`);
-
           if (cursor.tagName === "YTD-ITEM-SECTION-RENDERER") {
             shelfContainer = cursor;
             break;
@@ -211,12 +137,11 @@
         }
 
         if (!shelfContainer) continue;
-        if (shelfContainer.hasAttribute(FILTERED_ATTR)) continue; // Already hidden
+        if (shelfContainer.hasAttribute(FILTERED_ATTR)) continue;
 
-        YTF.log("[Fix1] Shorts walk-up chain:", chain.join(" > "));
         shelfContainer.setAttribute(FILTERED_ATTR, "1");
         shelfContainer.classList.add("ytf-hidden");
-        YTF.log("[Fix1] Hidden Shorts section:", shelfContainer.tagName, shelfContainer.id || "");
+        YTF.log("Hidden Shorts section:", shelfContainer.tagName, shelfContainer.id || "");
       }
     }
   }
@@ -243,30 +168,23 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Topic chips bar  (Fix 2)
+  // Topic chips bar — CSS-only collapse via body class
+  //
+  // Earlier versions mutated ytd-masthead[frosted-glass-mode] and #background
+  // height directly.  YouTube's framework reverts those attribute writes, and
+  // the resulting DOM churn re-triggers our MutationObserver — an attribute
+  // tug-of-war that caused the search page to reload constantly.
+  //
+  // Replacement: toggle a class on document.body (our element, no YT fight).
+  // styles.css uses that class to collapse the chip row and the 112px masthead
+  // background reservation.  No YouTube-owned attributes are mutated.
   // ---------------------------------------------------------------------------
 
   function filterTopicChips() {
     if (!YTF.settings.hideTopicChips) return;
-
-    const chipBars = document.querySelectorAll("ytd-feed-filter-chip-bar-renderer");
-    for (const bar of chipBars) {
-      if (bar.hasAttribute(FILTERED_ATTR)) continue;
-      bar.setAttribute(FILTERED_ATTR, "1");
-      bar.classList.add("ytf-hidden");
-
-      // Hide the #header parent to close the 56px gap it holds.
-      const header = bar.parentElement;
-      if (header && header.id === "header" && !header.hasAttribute(FILTERED_ATTR)) {
-        header.setAttribute(FILTERED_ATTR, "1");
-        header.classList.add("ytf-hidden");
-      }
-
-      YTF.log("Hiding topic chips bar");
-    }
-
-    // Collapse the masthead frosted-glass background that reserves space for the chip bar.
-    applyMastheadFix();
+    if (document.body.classList.contains("ytf-chips-hidden")) return;
+    document.body.classList.add("ytf-chips-hidden");
+    YTF.log("Topic chips: body.ytf-chips-hidden applied (CSS collapses bar + masthead bg)");
   }
 
   // ---------------------------------------------------------------------------

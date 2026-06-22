@@ -30,10 +30,28 @@
 
   // ---------------------------------------------------------------------------
   // MutationObserver (debounced)
+  //
+  // Safety net: disconnect the observer for the duration of the scan so any
+  // DOM mutations we cause (adding ytf-hidden classes, setting data-ytf-filtered,
+  // toggling body.ytf-chips-hidden) can't feed back into the observer and trigger
+  // another scan.  Re-attach after.  Without this guard, an attribute write that
+  // YouTube reverts can spin into an infinite re-scan loop.
   // ---------------------------------------------------------------------------
 
-  const debouncedScan = YTF.debounce(YTF.scanAndFilter, YTF.DEBOUNCE_MS);
-  const domObserver = new MutationObserver(debouncedScan);
+  let domObserver = null;
+  function safeScan() {
+    if (domObserver) domObserver.disconnect();
+    try {
+      YTF.scanAndFilter();
+    } finally {
+      if (domObserver) {
+        domObserver.observe(document.body, { childList: true, subtree: true });
+      }
+    }
+  }
+
+  const debouncedScan = YTF.debounce(safeScan, YTF.DEBOUNCE_MS);
+  domObserver = new MutationObserver(debouncedScan);
 
   // ---------------------------------------------------------------------------
   // Periodic rescan
