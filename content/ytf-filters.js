@@ -185,6 +185,36 @@
     if (document.body.classList.contains("ytf-chips-hidden")) return;
     document.body.classList.add("ytf-chips-hidden");
     YTF.log("Topic chips: body.ytf-chips-hidden applied (CSS collapses bar + masthead bg)");
+
+    // [ChipDiag] — temporary diagnostic to identify which element still holds height.
+    const masthead = document.querySelector("ytd-masthead");
+    if (masthead) {
+      const fgMode = masthead.getAttribute("frosted-glass-mode");
+      const mh = getComputedStyle(masthead).height;
+      YTF.log("[ChipDiag] ytd-masthead frosted-glass-mode:", JSON.stringify(fgMode), "height:", mh);
+
+      const bg = masthead.querySelector("#background");
+      if (bg) {
+        YTF.log("[ChipDiag] ytd-masthead #background height:", getComputedStyle(bg).height);
+      } else {
+        YTF.log("[ChipDiag] ytd-masthead #background: NOT FOUND");
+      }
+    } else {
+      YTF.log("[ChipDiag] ytd-masthead: NOT FOUND");
+    }
+
+    const grid = document.querySelector("ytd-rich-grid-renderer");
+    if (grid) {
+      const header = grid.querySelector(":scope > #header");
+      if (header) {
+        YTF.log("[ChipDiag] ytd-rich-grid-renderer > #header height:", getComputedStyle(header).height,
+          "display:", getComputedStyle(header).display);
+      } else {
+        YTF.log("[ChipDiag] ytd-rich-grid-renderer > #header: NOT FOUND");
+      }
+    } else {
+      YTF.log("[ChipDiag] ytd-rich-grid-renderer: NOT FOUND");
+    }
   }
 
   // ---------------------------------------------------------------------------

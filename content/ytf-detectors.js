@@ -166,15 +166,44 @@
   }
 
   // Returns total seconds, or NaN if no time-format badge is present.
-  // Temporary log left in to verify live parses on the page; remove once confirmed.
   function getDuration(el) {
-    for (const text of getBadgeTexts(el)) {
-      const secs = YTF.parseDuration(text);
-      if (!isNaN(secs)) {
-        YTF.log("[Duration] parsed", secs, "s from", text, "—", getVideoTitle(el));
-        return secs;
-      }
+    const title = getVideoTitle(el);
+
+    // [DurDiag] — temporary diagnostic to find where the duration text lives.
+    // Each badge-shape's full trimmed textContent (duration is plain text on the element,
+    // not always in a .yt-badge-shape__text child).
+    const badgeShapes = el.querySelectorAll("badge-shape");
+    YTF.log("[DurDiag] badge-shape count:", badgeShapes.length, "—", title);
+    badgeShapes.forEach((b, i) => {
+      YTF.log(`[DurDiag]   badge-shape[${i}] textContent:`, JSON.stringify(b.textContent.trim()));
+      YTF.log(`[DurDiag]   badge-shape[${i}] innerHTML:`, b.innerHTML.trim().slice(0, 200));
+    });
+
+    // Thumbnail bottom overlay host
+    const overlayHost = el.querySelector(".ytThumbnailBottomOverlayViewModelHost");
+    YTF.log("[DurDiag] .ytThumbnailBottomOverlayViewModelHost:", overlayHost
+      ? JSON.stringify(overlayHost.textContent.trim().slice(0, 100))
+      : "NOT FOUND");
+
+    // yt-thumbnail-bottom-overlay-view-model
+    const overlayModel = el.querySelector("yt-thumbnail-bottom-overlay-view-model");
+    YTF.log("[DurDiag] yt-thumbnail-bottom-overlay-view-model:", overlayModel
+      ? JSON.stringify(overlayModel.textContent.trim().slice(0, 100))
+      : "NOT FOUND");
+
+    // Time-status / overlay-badge selectors
+    for (const sel of [
+      "[class*='time-status']",
+      "[class*='ThumbnailOverlayBadge']",
+      "thumbnail-overlay-badge-view-model",
+      "ytd-thumbnail-overlay-time-status-renderer",
+    ]) {
+      const found = el.querySelector(sel);
+      YTF.log(`[DurDiag] ${sel}:`, found
+        ? JSON.stringify(found.textContent.trim().slice(0, 100))
+        : "NOT FOUND");
     }
+
     return NaN;
   }
 
