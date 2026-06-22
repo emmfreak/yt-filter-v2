@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube Feed Filter",
+  "version": "2.0.0",
+  "description": "Hides livestreams, Shorts, Mixes, Playables, members-only, and low-view videos from YouTube.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "yt-feed-filter@ytff",
+      "strict_min_version": "109.0"
+    }
+  },
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": [
+        "content/ytf-constants.js",
+        "content/ytf-utils.js",
+        "content/ytf-settings.js",
+        "content/ytf-detectors.js",
+        "content/ytf-filters.js",
+        "content/ytf-main.js"
+      ],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "YouTube Feed Filter"
+  }
+}
