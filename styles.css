@@ -3,26 +3,3 @@
 .ytf-hidden {
   display: none !important;
 }
-
-/* ---------------------------------------------------------------------------
- * Topic chips bar — CSS-only collapse.
- *
- * Driven by body.ytf-chips-hidden, which the content script toggles instead of
- * mutating YouTube-owned attributes.  Two pieces of layout reserve chip space:
- *
- *   1. ytd-rich-grid-renderer > #header — 56px row that hosts the chip bar.
- *   2. ytd-masthead[frosted-glass-mode="with-chipbar"] #background — 112px
- *      frosted backdrop (56px header + 56px chip reservation).  Collapse to 56px.
- * --------------------------------------------------------------------------- */
-
-body.ytf-chips-hidden ytd-rich-grid-renderer > #header {
-  display: none !important;
-}
-
-body.ytf-chips-hidden ytd-feed-filter-chip-bar-renderer {
-  display: none !important;
-}
-
-body.ytf-chips-hidden ytd-masthead[frosted-glass-mode="with-chipbar"] #background {
-  height: 56px !important;
-}

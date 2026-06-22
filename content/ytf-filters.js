@@ -59,14 +59,20 @@
     filterTopicChips();
   }
 
-  // Clear per-card marks + body-level state, then rescan.
+  // Clear per-card marks and restore any inline overrides we applied, then rescan.
+  // Uses YTF.safeScan so the observer is disconnected during the rescan — prevents
+  // the settings-update path from running a scan with the observer live.
   function resetAndRescan() {
-    document.body.classList.remove("ytf-chips-hidden");
     document.querySelectorAll(`[${FILTERED_ATTR}]`).forEach((el) => {
+      if (el.dataset.ytfHeightOverride) {
+        el.style.removeProperty("height");
+        el.style.removeProperty("overflow");
+        delete el.dataset.ytfHeightOverride;
+      }
       el.removeAttribute(FILTERED_ATTR);
       el.classList.remove("ytf-hidden");
     });
-    scanAndFilter();
+    (YTF.safeScan || YTF.scanAndFilter)();
   }
 
   // ---------------------------------------------------------------------------
@@ -87,6 +93,17 @@
     "ytd-shelf-renderer",
     "grid-shelf-view-model",
   ].join(", ");
+
+  // Shelf-level containers that are safe to hide for Shorts walk-up.
+  // These wrap only the shelf content — NOT YouTube's outer results container.
+  // ytd-item-section-renderer is intentionally excluded: hiding that whole section
+  // causes YouTube to re-render it, which fires the observer and loops forever.
+  const SHORTS_SHELF_TAGS = new Set([
+    "YTD-REEL-SHELF-RENDERER",
+    "GRID-SHELF-VIEW-MODEL",
+    "YTD-RICH-SHELF-RENDERER",
+    "YT-HORIZONTAL-LIST-RENDERER",
+  ]);
 
   function scanAndFilterShelves() {
     // 1. Heading-based hiding for Playables, Explore Topics, etc.
@@ -117,31 +134,63 @@
 
     // 2. Shorts shelf walk-up
     //
-    // Items are stamped "1" by the per-card scan before this runs, so we gate
-    // on the SHELF CONTAINER stamp, not the item stamp.  Walk up to
-    // ytd-item-section-renderer (the search-results section wrapper that holds
-    // both the shelf heading and the item grid).
+    // Walk up from ytm-shorts-lockup-view-model to the nearest shelf-level
+    // container in SHORTS_SHELF_TAGS — never ytd-item-section-renderer.
+    // Hiding that big section container causes YouTube's results machinery to
+    // re-render it, which fires the observer, which re-scans, which hides it
+    // again — an infinite loop that thrashes the search page.
+    //
+    // Fallback: if we reach ytd-item-section-renderer without finding a shelf
+    // wrapper, hide only the direct child of the section that contains the item
+    // (not the whole section).
+    //
+    // Re-render guard: track how many times each element has been hidden via
+    // dataset.ytfHideAttempts; give up after 3 to prevent any residual loops.
     if (YTF.settings.hideShorts) {
       for (const item of document.querySelectorAll("ytm-shorts-lockup-view-model")) {
         let cursor = item.parentElement;
         let shelfContainer = null;
+        let sectionContainer = null;
         let depth = 0;
 
         while (cursor && cursor !== document.documentElement && depth < 20) {
-          if (cursor.tagName === "YTD-ITEM-SECTION-RENDERER") {
+          if (SHORTS_SHELF_TAGS.has(cursor.tagName)) {
             shelfContainer = cursor;
+            break;
+          }
+          if (cursor.tagName === "YTD-ITEM-SECTION-RENDERER") {
+            sectionContainer = cursor;
             break;
           }
           cursor = cursor.parentElement;
           depth++;
         }
 
+        // Fallback: use the direct child of the section, not the section itself.
+        if (!shelfContainer && sectionContainer) {
+          let child = item;
+          while (child.parentElement && child.parentElement !== sectionContainer) {
+            child = child.parentElement;
+          }
+          if (child.parentElement === sectionContainer) {
+            shelfContainer = child;
+          }
+        }
+
         if (!shelfContainer) continue;
         if (shelfContainer.hasAttribute(FILTERED_ATTR)) continue;
 
+        // Re-render guard: stop after 3 successful hides of the same element.
+        const attempts = parseInt(shelfContainer.dataset.ytfHideAttempts || "0", 10) + 1;
+        shelfContainer.dataset.ytfHideAttempts = attempts;
+        if (attempts > 3) {
+          YTF.log("[ShortsShelf] giving up after", attempts, "attempts:", shelfContainer.tagName);
+          continue;
+        }
+
         shelfContainer.setAttribute(FILTERED_ATTR, "1");
         shelfContainer.classList.add("ytf-hidden");
-        YTF.log("Hidden Shorts section:", shelfContainer.tagName, shelfContainer.id || "");
+        YTF.log("[ShortsShelf] hiding:", shelfContainer.tagName, shelfContainer.id || "");
       }
     }
   }
@@ -168,52 +217,58 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Topic chips bar — CSS-only collapse via body class
+  // Topic chips bar
   //
-  // Earlier versions mutated ytd-masthead[frosted-glass-mode] and #background
-  // height directly.  YouTube's framework reverts those attribute writes, and
-  // the resulting DOM churn re-triggers our MutationObserver — an attribute
-  // tug-of-war that caused the search page to reload constantly.
+  // The empty rectangle below the search bar is div#frosted-glass — a standalone
+  // frosted overlay, NOT inside ytd-rich-grid-renderer or ytd-masthead.
+  // When the chip bar is visible, YouTube sets its height to 112px
+  // (56px masthead + 56px chip reservation).
   //
-  // Replacement: toggle a class on document.body (our element, no YT fight).
-  // styles.css uses that class to collapse the chip row and the 112px masthead
-  // background reservation.  No YouTube-owned attributes are mutated.
+  // Prior approaches that failed:
+  //   - Removing the "with-chipbar" class → loses the frosted background entirely.
+  //   - display:none → same: sticky header loses its background on scroll.
+  //   - ytd-masthead[frosted-glass-mode] attribute mutation → YouTube reverts it,
+  //     causing a MutationObserver tug-of-war that thrashed the search page.
+  //
+  // Correct fix: inline height override to 56px, leaving with-chipbar intact so
+  // the frosted background remains.  Restore is handled in resetAndRescan().
   // ---------------------------------------------------------------------------
 
   function filterTopicChips() {
     if (!YTF.settings.hideTopicChips) return;
-    if (document.body.classList.contains("ytf-chips-hidden")) return;
-    document.body.classList.add("ytf-chips-hidden");
-    YTF.log("Topic chips: body.ytf-chips-hidden applied (CSS collapses bar + masthead bg)");
 
-    // [ChipDiag] — temporary diagnostic to identify which element still holds height.
-    const masthead = document.querySelector("ytd-masthead");
-    if (masthead) {
-      const fgMode = masthead.getAttribute("frosted-glass-mode");
-      const mh = getComputedStyle(masthead).height;
-      YTF.log("[ChipDiag] ytd-masthead frosted-glass-mode:", JSON.stringify(fgMode), "height:", mh);
+    const frostedGlass = document.querySelector("div#frosted-glass");
+    YTF.log("[FrostDiag] div#frosted-glass:", frostedGlass ? "FOUND" : "NOT FOUND");
 
-      const bg = masthead.querySelector("#background");
-      if (bg) {
-        YTF.log("[ChipDiag] ytd-masthead #background height:", getComputedStyle(bg).height);
-      } else {
-        YTF.log("[ChipDiag] ytd-masthead #background: NOT FOUND");
+    if (frostedGlass) {
+      const heightBefore = getComputedStyle(frostedGlass).height;
+      YTF.log("[FrostDiag] height before override:", heightBefore);
+
+      if (!frostedGlass.hasAttribute(FILTERED_ATTR)) {
+        frostedGlass.style.setProperty("height", "56px", "important");
+        frostedGlass.style.setProperty("overflow", "hidden");
+        frostedGlass.setAttribute(FILTERED_ATTR, "1");
+        frostedGlass.dataset.ytfHeightOverride = "1";
+
+        const heightAfter = getComputedStyle(frostedGlass).height;
+        YTF.log("[FrostDiag] height after override:", heightAfter);
       }
-    } else {
-      YTF.log("[ChipDiag] ytd-masthead: NOT FOUND");
     }
 
-    const grid = document.querySelector("ytd-rich-grid-renderer");
-    if (grid) {
-      const header = grid.querySelector(":scope > #header");
-      if (header) {
-        YTF.log("[ChipDiag] ytd-rich-grid-renderer > #header height:", getComputedStyle(header).height,
-          "display:", getComputedStyle(header).display);
-      } else {
-        YTF.log("[ChipDiag] ytd-rich-grid-renderer > #header: NOT FOUND");
+    // Hide the chip bar row and its containing #header so the layout gap collapses.
+    const chipBars = document.querySelectorAll("ytd-feed-filter-chip-bar-renderer");
+    for (const bar of chipBars) {
+      if (bar.hasAttribute(FILTERED_ATTR)) continue;
+      bar.setAttribute(FILTERED_ATTR, "1");
+      bar.classList.add("ytf-hidden");
+
+      const header = bar.parentElement;
+      if (header && header.id === "header" && !header.hasAttribute(FILTERED_ATTR)) {
+        header.setAttribute(FILTERED_ATTR, "1");
+        header.classList.add("ytf-hidden");
       }
-    } else {
-      YTF.log("[ChipDiag] ytd-rich-grid-renderer: NOT FOUND");
+
+      YTF.log("Hiding topic chips bar");
     }
   }
 
