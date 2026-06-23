@@ -1,0 +1,5 @@
+/* YouTube Feed Filter — injected styles */
+
+.ytf-hidden {
+  display: none !important;
+}
