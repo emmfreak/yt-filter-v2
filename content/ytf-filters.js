@@ -238,21 +238,11 @@
     if (!YTF.settings.hideTopicChips) return;
 
     const frostedGlass = document.querySelector("div#frosted-glass");
-    YTF.log("[FrostDiag] div#frosted-glass:", frostedGlass ? "FOUND" : "NOT FOUND");
-
-    if (frostedGlass) {
-      const heightBefore = getComputedStyle(frostedGlass).height;
-      YTF.log("[FrostDiag] height before override:", heightBefore);
-
-      if (!frostedGlass.hasAttribute(FILTERED_ATTR)) {
-        frostedGlass.style.setProperty("height", "56px", "important");
-        frostedGlass.style.setProperty("overflow", "hidden");
-        frostedGlass.setAttribute(FILTERED_ATTR, "1");
-        frostedGlass.dataset.ytfHeightOverride = "1";
-
-        const heightAfter = getComputedStyle(frostedGlass).height;
-        YTF.log("[FrostDiag] height after override:", heightAfter);
-      }
+    if (frostedGlass && !frostedGlass.hasAttribute(FILTERED_ATTR)) {
+      frostedGlass.style.setProperty("height", "56px", "important");
+      frostedGlass.style.setProperty("overflow", "hidden");
+      frostedGlass.setAttribute(FILTERED_ATTR, "1");
+      frostedGlass.dataset.ytfHeightOverride = "1";
     }
 
     // Hide the chip bar row and its containing #header so the layout gap collapses.

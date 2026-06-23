@@ -129,3 +129,41 @@ body {
   font-size: 12px;
   flex-shrink: 0;
 }
+
+.ytf-health-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-bottom: 14px;
+}
+
+.ytf-health-dot {
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.ytf-health-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.ytf-health-ok {
+  background: rgba(0, 180, 80, 0.12);
+  color: #4caf77;
+}
+
+.ytf-health-fail {
+  background: rgba(200, 30, 30, 0.15);
+  color: #f77;
+}
+
+.ytf-health-unknown {
+  background: rgba(255, 255, 255, 0.05);
+  color: #666;
+}

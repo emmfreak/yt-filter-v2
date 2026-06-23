@@ -153,42 +153,41 @@
   // Duration
   // ---------------------------------------------------------------------------
 
-  // The thumbnail container can render well before the duration badge does, so
-  // checking yt-thumbnail-view-model wrongly treats half-rendered cards as
-  // "loaded, no duration" and lets them pass.  Key on the time badge itself
-  // (^\d+:\d{2}) — that's the only signal that the duration has actually rendered.
-  // Cards with no time badge return false → shouldHide defers (indeterminate),
-  // and the periodic rescan retries once it appears (same pattern as low-views).
-  const TIME_BADGE_RE = /^\d+:\d{2}/;
+  // Matches M:SS, MM:SS, H:MM:SS — status badges (LIVE, SHORTS, MIX) never match.
+  const TIME_RE = /^\d{1,2}(:\d{2}){1,2}$/;
+
+  // Reads duration text from multiple DOM locations, returning the first that
+  // matches a time pattern. badge-shape.textContent is the primary source — the
+  // DOM capture confirmed "26:54" lives directly on that element, not its child.
+  function getDurationText(el) {
+    const candidates = [];
+
+    for (const b of el.querySelectorAll("badge-shape")) {
+      candidates.push(b.textContent.trim());
+    }
+    for (const t of el.querySelectorAll(".yt-badge-shape__text")) {
+      candidates.push((t.textContent || "").trim());
+    }
+    const overlay = el.querySelector(
+      "thumbnail-overlay-badge-view-model, [class*='ThumbnailOverlayBadge']"
+    );
+    if (overlay) candidates.push(overlay.textContent.trim());
+
+    for (const c of candidates) {
+      if (TIME_RE.test(c)) return c;
+    }
+    return null;
+  }
 
   function isDurationLoaded(el) {
-    return getBadgeTexts(el).some((t) => TIME_BADGE_RE.test(t));
+    return getDurationText(el) !== null;
   }
 
   // Returns total seconds, or NaN if no time-format badge is present.
   function getDuration(el) {
-    const title = getVideoTitle(el);
-
-    // [DurDiag2] — log all badge texts via getBadgeTexts() (queries .yt-badge-shape__text)
-    // AND the raw textContent of every badge-shape element, so we can see whether the
-    // duration string lives on the parent element instead of the child selector.
-    const badgeTexts = getBadgeTexts(el);
-    YTF.log("[DurDiag2] getBadgeTexts() result:", JSON.stringify(badgeTexts), "—", title);
-
-    const badgeShapes = el.querySelectorAll("badge-shape");
-    YTF.log("[DurDiag2] badge-shape count:", badgeShapes.length);
-    badgeShapes.forEach((b, i) => {
-      YTF.log(
-        `[DurDiag2]   badge-shape[${i}] .textContent:`, JSON.stringify(b.textContent.trim()),
-        "| innerHTML:", b.innerHTML.trim().slice(0, 200)
-      );
-    });
-
-    for (const text of badgeTexts) {
-      const secs = YTF.parseDuration(text);
-      if (!isNaN(secs)) return secs;
-    }
-    return NaN;
+    const text = getDurationText(el);
+    if (text === null) return NaN;
+    return YTF.parseDuration(text);
   }
 
   // ---------------------------------------------------------------------------
@@ -214,30 +213,10 @@
       return { hide: true, reason: "members-only", indeterminate: false };
     }
 
-    if (s.hideLowViews) {
-      if (!isMetadataLoaded(el)) {
-        return { hide: false, reason: "", indeterminate: true };
-      }
-      const views = getViewCount(el);
-      if (isNaN(views)) {
-        return { hide: false, reason: "", indeterminate: false };
-      }
-      if (views < s.viewThreshold) {
-        return {
-          hide: true,
-          reason: `low views (${views.toLocaleString()} < ${s.viewThreshold.toLocaleString()})`,
-          indeterminate: false,
-        };
-      }
-    }
-
-    YTF.log("[DurDiag2] reached duration check — hideShortDuration:", s.hideShortDuration,
-      "hideLongDuration:", s.hideLongDuration, "—", getVideoTitle(el));
-
+    // Duration check runs before the low-views deferral — duration loads with the
+    // thumbnail and is available before view-count metadata arrives.
     if (s.hideShortDuration || s.hideLongDuration) {
-      const loaded = isDurationLoaded(el);
-      YTF.log("[DurDiag2] entered duration branch — isDurationLoaded:", loaded, "—", getVideoTitle(el));
-      if (!loaded) {
+      if (!isDurationLoaded(el)) {
         return { hide: false, reason: "", indeterminate: true };
       }
       const secs = getDuration(el);
@@ -258,7 +237,24 @@
           };
         }
       }
-      // No duration badge on a fully-loaded card (livestream, channel, playlist) — pass.
+      // No duration badge (livestream, channel, playlist) — fall through.
+    }
+
+    if (s.hideLowViews) {
+      if (!isMetadataLoaded(el)) {
+        return { hide: false, reason: "", indeterminate: true };
+      }
+      const views = getViewCount(el);
+      if (isNaN(views)) {
+        return { hide: false, reason: "", indeterminate: false };
+      }
+      if (views < s.viewThreshold) {
+        return {
+          hide: true,
+          reason: `low views (${views.toLocaleString()} < ${s.viewThreshold.toLocaleString()})`,
+          indeterminate: false,
+        };
+      }
     }
 
     return { hide: false, reason: "", indeterminate: false };
@@ -275,6 +271,7 @@
     isMembersOnly,
     isMetadataLoaded,
     getViewCount,
+    getDurationText,
     isDurationLoaded,
     getDuration,
     shouldHide,

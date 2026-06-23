@@ -10,6 +10,9 @@
     }
   },
   "permissions": ["storage"],
+  "background": {
+    "scripts": ["background.js"]
+  },
   "content_scripts": [
     {
       "matches": ["*://*.youtube.com/*"],
@@ -19,7 +22,8 @@
         "content/ytf-settings.js",
         "content/ytf-detectors.js",
         "content/ytf-filters.js",
-        "content/ytf-main.js"
+        "content/ytf-main.js",
+        "content/ytf-health.js"
       ],
       "css": ["styles.css"],
       "run_at": "document_idle"

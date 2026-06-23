@@ -31,6 +31,38 @@ function loadSettings() {
   });
 }
 
+function loadHealth() {
+  browser.storage.local.get("healthStatus").then((data) => {
+    const row    = document.getElementById("health-status");
+    const dot    = document.getElementById("health-dot");
+    const textEl = document.getElementById("health-text");
+    const s = data.healthStatus;
+
+    if (!s) {
+      row.className = "ytf-health-status ytf-health-unknown";
+      dot.textContent  = "·";
+      textEl.textContent = "No health data yet — visit YouTube to run checks";
+      return;
+    }
+
+    const failing = s.checks.filter((c) => !c.pass);
+
+    if (failing.length === 0) {
+      row.className = "ytf-health-status ytf-health-ok";
+      dot.textContent  = "✓";
+      textEl.textContent = "All checks passing";
+    } else {
+      row.className = "ytf-health-status ytf-health-fail";
+      dot.textContent  = "!";
+      textEl.textContent = "";
+      failing.forEach((f, i) => {
+        if (i > 0) textEl.appendChild(document.createElement("br"));
+        textEl.appendChild(document.createTextNode(f.detail || f.name));
+      });
+    }
+  });
+}
+
 function saveAndNotify(key, value) {
   const update = { [key]: value };
   browser.storage.local.set(update).then(() => {
@@ -47,6 +79,7 @@ function saveAndNotify(key, value) {
 
 document.addEventListener("DOMContentLoaded", () => {
   loadSettings();
+  loadHealth();
 
   for (const id of TOGGLE_IDS) {
     document.getElementById(id).addEventListener("change", (e) => {
