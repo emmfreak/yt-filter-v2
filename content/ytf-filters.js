@@ -147,7 +147,7 @@
     // Re-render guard: track how many times each element has been hidden via
     // dataset.ytfHideAttempts; give up after 3 to prevent any residual loops.
     if (YTF.settings.hideShorts) {
-      for (const item of document.querySelectorAll("ytm-shorts-lockup-view-model")) {
+      for (const item of document.querySelectorAll(YTF.SEL_SHORTS)) {
         let cursor = item.parentElement;
         let shelfContainer = null;
         let sectionContainer = null;
@@ -237,7 +237,7 @@
   function filterTopicChips() {
     if (!YTF.settings.hideTopicChips) return;
 
-    const frostedGlass = document.querySelector("div#frosted-glass");
+    const frostedGlass = document.querySelector(YTF.SEL_FROSTED_GLASS);
     if (frostedGlass && !frostedGlass.hasAttribute(FILTERED_ATTR)) {
       frostedGlass.style.setProperty("height", "56px", "important");
       frostedGlass.style.setProperty("overflow", "hidden");

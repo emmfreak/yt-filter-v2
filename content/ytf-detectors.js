@@ -12,7 +12,7 @@
   // Duration ("4:58", "1:02:33") also uses this element — callers that check
   // for status labels must use exact-match; parseDuration() handles time strings.
   function getBadgeTexts(el) {
-    const nodes = el.querySelectorAll("badge-shape .yt-badge-shape__text");
+    const nodes = el.querySelectorAll(`${YTF.SEL_BADGE} .yt-badge-shape__text`);
     return Array.from(nodes).map((n) => (n.textContent || "").trim().toUpperCase());
   }
 
@@ -162,7 +162,7 @@
   function getDurationText(el) {
     const candidates = [];
 
-    for (const b of el.querySelectorAll("badge-shape")) {
+    for (const b of el.querySelectorAll(YTF.SEL_BADGE)) {
       candidates.push(b.textContent.trim());
     }
     for (const t of el.querySelectorAll(".yt-badge-shape__text")) {
