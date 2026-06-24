@@ -25,7 +25,9 @@ Object.assign(window.YTF, {
   FILTERED_ATTR: "data-ytf-filtered",
 
   DEBOUNCE_MS: 250,
-  RESCAN_INTERVAL_MS: 2000,
+  // The scoped MutationObserver now catches most lazy-load mutations directly;
+  // the periodic rescan is a safety net for anything the observer misses.
+  RESCAN_INTERVAL_MS: 3500,
 
   // Named selector constants — used by both the scanner and the health canaries.
   SEL_RICH_ITEM,

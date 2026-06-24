@@ -4,13 +4,63 @@
   const YTF = window.YTF;
 
   // ---------------------------------------------------------------------------
+  // Scoped observer target
+  //
+  // Observe the narrowest container that still contains all filterable content
+  // for the current page type.  This prevents player/comment/hover-preview
+  // mutations from triggering scans — the main source of CPU churn on
+  // document.body.
+  //
+  // getObserveTarget() is called in safeScan's finally block so the target
+  // self-heals after navigation: if the container doesn't exist on the first
+  // post-nav scan (page still loading), the fallback is used and the next
+  // observer-triggered scan picks up the real container once it appears.
+  // ---------------------------------------------------------------------------
+
+  function getObserveTarget() {
+    const p = location.pathname;
+
+    if (p === "/" || p.startsWith("/feed/")) {
+      // Home — the grid's inner #contents is where ytd-rich-item-renderer
+      // elements are inserted; this excludes masthead/sidebar mutations.
+      return (
+        document.querySelector(`${YTF.SEL_RICH_GRID} #contents`) ||
+        document.querySelector(YTF.SEL_RICH_GRID) ||
+        document.querySelector("#page-manager") ||
+        document.body
+      );
+    }
+
+    if (p.startsWith("/results")) {
+      // Search — ytd-section-list-renderer holds all result rows.
+      return (
+        document.querySelector("ytd-section-list-renderer") ||
+        document.querySelector("#page-manager") ||
+        document.body
+      );
+    }
+
+    if (p.startsWith("/watch")) {
+      // Watch page — observe only the sidebar items list, not the player.
+      return (
+        document.querySelector(`${YTF.SEL_SECONDARY} #items`) ||
+        document.querySelector(YTF.SEL_SECONDARY) ||
+        document.querySelector("#page-manager") ||
+        document.body
+      );
+    }
+
+    // All other pages (channel, playlist, settings, …) — #page-manager is far
+    // narrower than body and still covers any feed-like content that might load.
+    return document.querySelector("#page-manager") || document.body;
+  }
+
+  // ---------------------------------------------------------------------------
   // MutationObserver (debounced)
   //
-  // All scan paths (observer, periodic, navigation, settings-update) run through
-  // safeScan, which disconnects the observer before calling scanAndFilter and
-  // reconnects in a finally block.  This prevents any DOM mutations we make
-  // (stamping data-ytf-filtered, adding ytf-hidden, inline style overrides) from
-  // re-triggering the observer while a scan is already in progress.
+  // All scan paths run through safeScan, which disconnects the observer before
+  // calling scanAndFilter and reconnects in a finally block.  The reconnect
+  // calls getObserveTarget() so the scope is updated after each navigation.
   // ---------------------------------------------------------------------------
 
   let domObserver = null;
@@ -21,7 +71,7 @@
       YTF.scanAndFilter();
     } finally {
       if (domObserver) {
-        domObserver.observe(document.body, { childList: true, subtree: true });
+        domObserver.observe(getObserveTarget(), { childList: true, subtree: true });
       }
     }
   }
@@ -33,8 +83,6 @@
   // SPA navigation
   // ---------------------------------------------------------------------------
 
-  // Clear all filter marks immediately, then rescan after 500ms via safeScan.
-  // Both yt-navigate-finish and popstate use the same function.
   function clearAndScheduleRescan() {
     document.querySelectorAll(`[${YTF.FILTERED_ATTR}]`).forEach((el) => {
       if (el.dataset.ytfHeightOverride) {
@@ -60,6 +108,11 @@
 
   // ---------------------------------------------------------------------------
   // Periodic rescan
+  //
+  // Safety net for late-hydrating cards that the observer might miss.
+  // Only runs on pages that actually have a filterable feed; other pages
+  // (channels, settings, …) produce no filterable content and should not
+  // pay the repeated querySelector cost.
   // ---------------------------------------------------------------------------
 
   function startPeriodicRescan() {
@@ -68,6 +121,14 @@
       .join(", ");
 
     setInterval(() => {
+      const p = location.pathname;
+      const hasFeed =
+        p === "/" ||
+        p.startsWith("/feed/") ||
+        p.startsWith("/results") ||
+        p.startsWith("/watch");
+      if (!hasFeed) return;
+
       if (document.querySelector(unstampedSelector)) {
         safeScan();
       }
@@ -90,13 +151,14 @@
       // use it for the settings-update path.
       Object.assign(window.YTF, { safeScan });
 
-      domObserver.observe(document.body, { childList: true, subtree: true });
+      domObserver.observe(getObserveTarget(), { childList: true, subtree: true });
 
       safeScan();
 
       startPeriodicRescan();
 
-      YTF.log("Observer active, periodic rescan every", YTF.RESCAN_INTERVAL_MS, "ms");
+      YTF.log("Observer active on", getObserveTarget().tagName || getObserveTarget().id,
+        "— periodic rescan every", YTF.RESCAN_INTERVAL_MS, "ms");
     });
   }
 

@@ -94,6 +94,13 @@
     "grid-shelf-view-model",
   ].join(", ");
 
+  // Pre-built selector for unstamped shelf containers — used as a cheap guard
+  // to skip scanAndFilterShelves entirely when all shelves are already handled.
+  // Built from SHELF_SELECTORS so both share the same element list.
+  const SHELF_GUARD_SELECTOR = SHELF_SELECTORS.split(", ")
+    .map((s) => `${s}:not([${FILTERED_ATTR}])`)
+    .join(", ");
+
   // Shelf-level containers that are safe to hide for Shorts walk-up.
   // These wrap only the shelf content — NOT YouTube's outer results container.
   // ytd-item-section-renderer is intentionally excluded: hiding that whole section
@@ -106,6 +113,11 @@
   ]);
 
   function scanAndFilterShelves() {
+    // Fast exit: nothing to do when all shelves are already stamped and Shorts
+    // hiding is disabled.  querySelector stops at the first match, so this is
+    // O(1) once the page is fully processed.
+    if (!document.querySelector(SHELF_GUARD_SELECTOR) && !YTF.settings.hideShorts) return;
+
     // 1. Heading-based hiding for Playables, Explore Topics, etc.
     const shelves = document.querySelectorAll(SHELF_SELECTORS);
     for (const shelf of shelves) {
@@ -206,6 +218,13 @@
 
   function filterShortsNav() {
     if (!YTF.settings.hideShorts) return;
+    // Skip if every guide entry is already stamped — avoids a full querySelectorAll
+    // on every scan once the nav entry is handled (which is a one-time operation
+    // per navigation).
+    if (!document.querySelector(
+      `ytd-guide-entry-renderer:not([${FILTERED_ATTR}]),` +
+      `ytd-mini-guide-entry-renderer:not([${FILTERED_ATTR}])`
+    )) return;
 
     const entries = document.querySelectorAll(
       "ytd-guide-entry-renderer, ytd-mini-guide-entry-renderer"
@@ -241,8 +260,15 @@
 
   function filterTopicChips() {
     if (!YTF.settings.hideTopicChips) return;
+    // Skip if the frosted-glass override and all chip bars are already handled.
+    // This makes repeated calls effectively free once the page is settled.
+    const _frosted = document.querySelector(YTF.SEL_FROSTED_GLASS);
+    const _unstampedBar = document.querySelector(
+      `ytd-feed-filter-chip-bar-renderer:not([${FILTERED_ATTR}])`
+    );
+    if ((!_frosted || _frosted.hasAttribute(FILTERED_ATTR)) && !_unstampedBar) return;
 
-    const frostedGlass = document.querySelector(YTF.SEL_FROSTED_GLASS);
+    const frostedGlass = _frosted;
     if (frostedGlass && !frostedGlass.hasAttribute(FILTERED_ATTR)) {
       frostedGlass.style.setProperty("height", "56px", "important");
       frostedGlass.style.setProperty("overflow", "hidden");
