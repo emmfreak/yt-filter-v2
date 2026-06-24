@@ -35,28 +35,67 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Main scan
+  // Main scan — chunked to keep the main thread free for input and paint
   // ---------------------------------------------------------------------------
 
+  // Incremented each time a new scan starts; in-flight batches check this and
+  // exit early if a newer scan has superseded them.
+  let _scanToken = 0;
+
   function scanAndFilter() {
+    const token = ++_scanToken;
+
+    // Collect unresolved cards upfront (one querySelectorAll, synchronous).
     const elements = document.querySelectorAll(YTF.VIDEO_SELECTORS);
-    let newCount = 0;
-    let resolvedCount = 0;
-
+    const unresolved = [];
     for (const el of elements) {
-      const status = el.getAttribute(FILTERED_ATTR);
-      if (status === "1" || status === "pass" || status === "skip") continue;
-      newCount++;
-      if (processVideoElement(el)) resolvedCount++;
+      const s = el.getAttribute(FILTERED_ATTR);
+      if (s !== "1" && s !== "pass" && s !== "skip") unresolved.push(el);
     }
 
-    if (newCount > 0) {
-      YTF.log(`Scanned ${newCount} unresolved, resolved ${resolvedCount}`);
+    // Shelf/nav/chip passes are guard-gated (O(1) once settled); always run them.
+    if (unresolved.length === 0) {
+      scanAndFilterShelves();
+      filterShortsNav();
+      filterTopicChips();
+      return;
     }
 
-    scanAndFilterShelves();
-    filterShortsNav();
-    filterTopicChips();
+    YTF.log(`Scan: ${unresolved.length} unresolved`);
+
+    let idx = 0;
+    let resolved = 0;
+    const BATCH = 12;
+
+    // Prefer requestIdleCallback so the browser schedules batches during idle
+    // gaps rather than burning a frame slot; fall back to setTimeout(0).
+    const schedule =
+      typeof requestIdleCallback === "function"
+        ? (cb) => requestIdleCallback(cb, { timeout: 500 })
+        : (cb) => setTimeout(cb, 0);
+
+    function runBatch() {
+      if (_scanToken !== token) return; // cancelled by a newer scan
+
+      const end = Math.min(idx + BATCH, unresolved.length);
+      while (idx < end) {
+        if (processVideoElement(unresolved[idx])) resolved++;
+        idx++;
+      }
+
+      if (idx < unresolved.length) {
+        schedule(runBatch);
+      } else {
+        if (_scanToken === token) {
+          YTF.log(`Scan done: resolved ${resolved}/${unresolved.length}`);
+          scanAndFilterShelves();
+          filterShortsNav();
+          filterTopicChips();
+        }
+      }
+    }
+
+    schedule(runBatch);
   }
 
   // Clear per-card marks and restore any inline overrides we applied, then rescan.

@@ -7,10 +7,8 @@
   // Shared helpers
   // ---------------------------------------------------------------------------
 
-  // Collect all badge text strings from a card.
+  // Collect all badge text strings from a card (uppercased, for status checks).
   // Source: badge-shape confirmed in all three reference captures.
-  // Duration ("4:58", "1:02:33") also uses this element — callers that check
-  // for status labels must use exact-match; parseDuration() handles time strings.
   function getBadgeTexts(el) {
     const nodes = el.querySelectorAll(`${YTF.SEL_BADGE} .yt-badge-shape__text`);
     return Array.from(nodes).map((n) => (n.textContent || "").trim().toUpperCase());
@@ -37,16 +35,14 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Livestream  (Fix 4: removed dead ytd-thumbnail-overlay-time-status-renderer)
+  // Livestream
   // ---------------------------------------------------------------------------
 
-  function isLiveStream(el) {
-    // Badge text "LIVE" / "LIVE NOW" — thumbnail badges render before metadata.
-    // Source: badge-shape .yt-badge-shape__text confirmed in all three captures.
-    const badges = getBadgeTexts(el);
-    if (badges.some((t) => t === "LIVE" || t === "LIVE NOW")) return true;
+  // Accept pre-computed badgeTexts from shouldHide to avoid re-querying.
+  function isLiveStream(el, badgeTexts) {
+    if (!badgeTexts) badgeTexts = getBadgeTexts(el);
+    if (badgeTexts.some((t) => t === "LIVE" || t === "LIVE NOW")) return true;
 
-    // "X watching" in metadata text — only present once yt-lockup-metadata-view-model loads.
     const meta = el.querySelector("yt-lockup-metadata-view-model, #metadata-line, #meta");
     if (meta && /\bwatching\b/i.test(meta.textContent)) return true;
 
@@ -54,21 +50,15 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Shorts  (Fix 4: removed dead ytd-thumbnail-overlay-time-status-renderer)
+  // Shorts
   // ---------------------------------------------------------------------------
 
-  function isShort(el) {
-    // Tag name is definitive — ytm-shorts-lockup-view-model is exclusively Shorts.
-    // Source: search capture, 15 found.
+  function isShort(el, badgeTexts, hrefs) {
     if (el.tagName === "YTM-SHORTS-LOCKUP-VIEW-MODEL") return true;
-
-    // Link href starts with "/shorts/".
-    // Source: a.shortsLockupViewModelHostEndpoint[href="/shorts/ID"] in search capture.
-    if (getHrefs(el).some((h) => h.startsWith("/shorts/"))) return true;
-
-    // Badge text "SHORTS".
-    if (getBadgeTexts(el).some((t) => t === "SHORTS")) return true;
-
+    if (!hrefs) hrefs = getHrefs(el);
+    if (hrefs.some((h) => h.startsWith("/shorts/"))) return true;
+    if (!badgeTexts) badgeTexts = getBadgeTexts(el);
+    if (badgeTexts.some((t) => t === "SHORTS")) return true;
     return false;
   }
 
@@ -76,16 +66,14 @@
   // Mix
   // ---------------------------------------------------------------------------
 
-  function isMix(el) {
-    const hrefs = getHrefs(el);
+  function isMix(el, badgeTexts, hrefs) {
+    if (!hrefs) hrefs = getHrefs(el);
     if (hrefs.some((h) => h.includes("start_radio=1"))) return true;
     if (hrefs.some((h) => /[?&]list=RD/.test(h))) return true;
-
-    if (getBadgeTexts(el).some((t) => t === "MIX")) return true;
-
+    if (!badgeTexts) badgeTexts = getBadgeTexts(el);
+    if (badgeTexts.some((t) => t === "MIX")) return true;
     const title = getVideoTitle(el);
     if (/^Mix\s*[-–]/i.test(title)) return true;
-
     return false;
   }
 
@@ -93,9 +81,11 @@
   // Playable
   // ---------------------------------------------------------------------------
 
-  function isPlayable(el) {
-    if (getHrefs(el).some((h) => h.includes("/playables/"))) return true;
-    if (getBadgeTexts(el).some((t) => t === "PLAYABLE" || t === "PLAY GAME")) return true;
+  function isPlayable(el, badgeTexts, hrefs) {
+    if (!hrefs) hrefs = getHrefs(el);
+    if (hrefs.some((h) => h.includes("/playables/"))) return true;
+    if (!badgeTexts) badgeTexts = getBadgeTexts(el);
+    if (badgeTexts.some((t) => t === "PLAYABLE" || t === "PLAY GAME")) return true;
     return false;
   }
 
@@ -103,8 +93,9 @@
   // Members-only
   // ---------------------------------------------------------------------------
 
-  function isMembersOnly(el) {
-    return getBadgeTexts(el).some((t) => t === "MEMBERS ONLY");
+  function isMembersOnly(el, badgeTexts) {
+    if (!badgeTexts) badgeTexts = getBadgeTexts(el);
+    return badgeTexts.some((t) => t === "MEMBERS ONLY");
   }
 
   // ---------------------------------------------------------------------------
@@ -119,16 +110,7 @@
     const tag = el.tagName;
     // Shorts elements embed their metadata inline — always ready.
     if (tag === "YTM-SHORTS-LOCKUP-VIEW-MODEL") return true;
-    // For every other card type (including YTD-VIDEO-RENDERER) require the
-    // metadata sub-block to have actually hydrated.  Search-row skeletons render
-    // before #metadata-line populates, so returning true unconditionally caused
-    // getViewCount → NaN → shouldHide to treat the card as resolved/pass,
-    // leaking low-view videos on search.
     const meta = el.querySelector("yt-lockup-metadata-view-model, #metadata-line, #meta");
-    // [MetaDiag] — verify that an unhydrated YTD-VIDEO-RENDERER genuinely lacks
-    // #metadata-line (existence check is sufficient) vs. having an empty one
-    // (in which case switch to: meta && meta.textContent.trim().length > 0).
-    // Remove once confirmed.
     if (tag === "YTD-VIDEO-RENDERER" && _metaDiagCount < 5) {
       _metaDiagCount++;
       YTF.log(
@@ -140,6 +122,10 @@
     return meta !== null;
   }
 
+  // Primary selectors (yt-lockup-metadata-view-model, #metadata-line, ytd-video-meta-block)
+  // cover home + search. Cards without any of these are unhydrated — treated as NaN.
+  // The all-spans fallback was removed: it walked every <span> per card, burning CPU,
+  // and never triggered on live YouTube once the three primary selectors were in place.
   function getViewCount(el) {
     const { extractViewString, parseViewCount } = YTF;
 
@@ -161,14 +147,6 @@
       if (vs) return parseViewCount(vs);
     }
 
-    for (const span of el.querySelectorAll("span")) {
-      const txt = (span.textContent || "").trim();
-      if (/^no views$/i.test(txt) || /views?$/i.test(txt)) {
-        const count = parseViewCount(txt);
-        if (!isNaN(count)) return count;
-      }
-    }
-
     return NaN;
   }
 
@@ -179,25 +157,28 @@
   // Matches M:SS, MM:SS, H:MM:SS — status badges (LIVE, SHORTS, MIX) never match.
   const TIME_RE = /^\d{1,2}(:\d{2}){1,2}$/;
 
-  // Reads duration text from multiple DOM locations, returning the first that
-  // matches a time pattern. badge-shape.textContent is the primary source — the
-  // DOM capture confirmed "26:54" lives directly on that element, not its child.
+  // Returns the first badge text that matches a time pattern, or null.
+  // Returns null immediately when duration filtering is off (checked by the health
+  // check's durEnabled guard and by shouldHide's outer conditional, so this is safe).
+  // Tests each source eagerly and returns on first match rather than collecting all
+  // candidates first, so most cards exit after the badge-shape loop.
   function getDurationText(el) {
-    const candidates = [];
+    if (!YTF.settings.hideShortDuration && !YTF.settings.hideLongDuration) return null;
 
     for (const b of el.querySelectorAll(YTF.SEL_BADGE)) {
-      candidates.push(b.textContent.trim());
+      const t = (b.textContent || "").trim();
+      if (TIME_RE.test(t)) return t;
     }
     for (const t of el.querySelectorAll(".yt-badge-shape__text")) {
-      candidates.push((t.textContent || "").trim());
+      const txt = (t.textContent || "").trim();
+      if (TIME_RE.test(txt)) return txt;
     }
     const overlay = el.querySelector(
       "thumbnail-overlay-badge-view-model, [class*='ThumbnailOverlayBadge']"
     );
-    if (overlay) candidates.push(overlay.textContent.trim());
-
-    for (const c of candidates) {
-      if (TIME_RE.test(c)) return c;
+    if (overlay) {
+      const t = (overlay.textContent || "").trim();
+      if (TIME_RE.test(t)) return t;
     }
     return null;
   }
@@ -220,19 +201,24 @@
   function shouldHide(el) {
     const s = YTF.settings;
 
-    if (s.hideLivestreams && isLiveStream(el)) {
+    // Compute badge texts and hrefs once per card and pass them to each detector,
+    // avoiding redundant querySelectorAll calls across the five badge/href checks.
+    const badgeTexts = getBadgeTexts(el);
+    const hrefs = getHrefs(el);
+
+    if (s.hideLivestreams && isLiveStream(el, badgeTexts)) {
       return { hide: true, reason: "livestream", indeterminate: false };
     }
-    if (s.hideShorts && isShort(el)) {
+    if (s.hideShorts && isShort(el, badgeTexts, hrefs)) {
       return { hide: true, reason: "short", indeterminate: false };
     }
-    if (s.hideMixes && isMix(el)) {
+    if (s.hideMixes && isMix(el, badgeTexts, hrefs)) {
       return { hide: true, reason: "mix", indeterminate: false };
     }
-    if (s.hidePlayables && isPlayable(el)) {
+    if (s.hidePlayables && isPlayable(el, badgeTexts, hrefs)) {
       return { hide: true, reason: "playable", indeterminate: false };
     }
-    if (s.hideMembersOnly && isMembersOnly(el)) {
+    if (s.hideMembersOnly && isMembersOnly(el, badgeTexts)) {
       return { hide: true, reason: "members-only", indeterminate: false };
     }
 
