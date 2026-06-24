@@ -128,8 +128,13 @@
             break;
           }
         }
+        // Only stamp pass once we have a real heading that didn't match any
+        // filter.  Stamping pass on an empty heading locked shelves in before
+        // their title hydrated, causing Shorts/Playables shelves to leak.
+        if (!matched) shelf.setAttribute(FILTERED_ATTR, "pass");
       }
-      if (!matched) shelf.setAttribute(FILTERED_ATTR, "pass");
+      // else: heading not yet hydrated — leave unstamped so the next scan
+      // re-evaluates once the title loads.
     }
 
     // 2. Shorts shelf walk-up

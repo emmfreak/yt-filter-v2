@@ -111,10 +111,33 @@
   // View count
   // ---------------------------------------------------------------------------
 
+  // Caps [MetaDiag] output to avoid console spam during the verification window.
+  // Remove this variable and the log block below once Fix 3 is confirmed.
+  let _metaDiagCount = 0;
+
   function isMetadataLoaded(el) {
     const tag = el.tagName;
-    if (tag === "YTD-VIDEO-RENDERER" || tag === "YTM-SHORTS-LOCKUP-VIEW-MODEL") return true;
-    return el.querySelector("yt-lockup-metadata-view-model") !== null;
+    // Shorts elements embed their metadata inline — always ready.
+    if (tag === "YTM-SHORTS-LOCKUP-VIEW-MODEL") return true;
+    // For every other card type (including YTD-VIDEO-RENDERER) require the
+    // metadata sub-block to have actually hydrated.  Search-row skeletons render
+    // before #metadata-line populates, so returning true unconditionally caused
+    // getViewCount → NaN → shouldHide to treat the card as resolved/pass,
+    // leaking low-view videos on search.
+    const meta = el.querySelector("yt-lockup-metadata-view-model, #metadata-line, #meta");
+    // [MetaDiag] — verify that an unhydrated YTD-VIDEO-RENDERER genuinely lacks
+    // #metadata-line (existence check is sufficient) vs. having an empty one
+    // (in which case switch to: meta && meta.textContent.trim().length > 0).
+    // Remove once confirmed.
+    if (tag === "YTD-VIDEO-RENDERER" && _metaDiagCount < 5) {
+      _metaDiagCount++;
+      YTF.log(
+        "[MetaDiag]", _metaDiagCount,
+        "| el:", meta ? `${meta.tagName}${meta.id ? "#" + meta.id : ""}` : "null",
+        "| text:", meta ? JSON.stringify(meta.textContent.trim().slice(0, 50)) : "n/a"
+      );
+    }
+    return meta !== null;
   }
 
   function getViewCount(el) {
@@ -216,28 +239,40 @@
     // Duration check runs before the low-views deferral — duration loads with the
     // thumbnail and is available before view-count metadata arrives.
     if (s.hideShortDuration || s.hideLongDuration) {
-      if (!isDurationLoaded(el)) {
-        return { hide: false, reason: "", indeterminate: true };
-      }
-      const secs = getDuration(el);
-      if (!isNaN(secs)) {
-        const mins = secs / 60;
-        if (s.hideShortDuration && mins < s.minDurationMinutes) {
-          return {
-            hide: true,
-            reason: `too short (${YTF.formatDuration(secs)} < ${s.minDurationMinutes}m)`,
-            indeterminate: false,
-          };
+      const durText = getDurationText(el);
+      if (durText === null) {
+        // No duration badge yet.  Gate on whether metadata has loaded to distinguish
+        // two cases:
+        //   • metadata not loaded → card is still rendering, defer (indeterminate).
+        //   • metadata loaded, still no badge → channel/playlist/livestream card
+        //     that legitimately has no duration; fall through so it gets stamped.
+        // Without this guard, duration-less cards stay permanently unstamped and
+        // the periodic rescan fires every 2 s forever, burning CPU.
+        if (!isMetadataLoaded(el)) {
+          return { hide: false, reason: "", indeterminate: true };
         }
-        if (s.hideLongDuration && mins > s.maxDurationMinutes) {
-          return {
-            hide: true,
-            reason: `too long (${YTF.formatDuration(secs)} > ${s.maxDurationMinutes}m)`,
-            indeterminate: false,
-          };
+        // Metadata loaded but no duration badge — fall through.
+      } else {
+        const secs = YTF.parseDuration(durText);
+        if (!isNaN(secs)) {
+          const mins = secs / 60;
+          if (s.hideShortDuration && mins < s.minDurationMinutes) {
+            return {
+              hide: true,
+              reason: `too short (${YTF.formatDuration(secs)} < ${s.minDurationMinutes}m)`,
+              indeterminate: false,
+            };
+          }
+          if (s.hideLongDuration && mins > s.maxDurationMinutes) {
+            return {
+              hide: true,
+              reason: `too long (${YTF.formatDuration(secs)} > ${s.maxDurationMinutes}m)`,
+              indeterminate: false,
+            };
+          }
         }
+        // Duration present but within bounds — fall through.
       }
-      // No duration badge (livestream, channel, playlist) — fall through.
     }
 
     if (s.hideLowViews) {
